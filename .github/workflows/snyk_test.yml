@@ -1,0 +1,33 @@
+name: Example workflow for Node using Snyk
+on: push
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - name: Run Snyk to check for vulnerabilities
+        uses: snyk/actions/node@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          command: code test
+          args: --sarif-file-output=snyk.sarif
+      - name: Calculate and save vulnerability details
+        run: |
+          echo "Parsing Snyk SARIF output..."
+          total_vulnerabilities=$(jq '.runs[].tool.driver.rules | length' snyk.sarif)
+          echo "RESULTS_LENGTH=$total_vulnerabilities" >> $GITHUB_ENV
+      
+          high_vulnerabilities=$(jq '.runs[].tool.driver.rules[] | select(.defaultConfiguration.level == "error") | .shortDescription.text' snyk.sarif | wc -l)
+          medium_vulnerabilities=$(jq '.runs[].tool.driver.rules[] | select(.defaultConfiguration.level == "warning") | .shortDescription.text' snyk.sarif | wc -l)
+          low_vulnerabilities=$(jq '.runs[].tool.driver.rules[] | select(.defaultConfiguration.level == "note") | .shortDescription.text' snyk.sarif | wc -l)
+      
+          high_vulnerability_details=$(jq -r '.runs[].tool.driver.rules[] | select(.defaultConfiguration.level == "error") | {description: .shortDescription.text, path: .locations[].physicalLocation.artifactLocation.uri, line: .locations[].physicalLocation.region.startLine} | "Description: \(.description)\nPath: \(.path), line \(.line)"' snyk.sarif | paste -sd "\n" -)
+          medium_vulnerability_details=$(jq -r '.runs[].tool.driver.rules[] | select(.defaultConfiguration.level == "warning") | {description: .shortDescription.text, path: .locations[].physicalLocation.artifactLocation.uri, line: .locations[].physicalLocation.region.startLine} | "Description: \(.description)\nPath: \(.path), line \(.line)"' snyk.sarif | paste -sd "\n" -)
+          low_vulnerability_details=$(jq -r '.runs[].tool.driver.rules[] | select(.defaultConfiguration.level == "note") | {description: .shortDescription.text, path: .locations[].physicalLocation.artifactLocation.uri, line: .locations[].physicalLocation.region.startLine} | "Description: \(.description)\nPath: \(.path), line \(.line)"' snyk.sarif | paste -sd "\n" -)
+
+          echo "Sending notification to Slack..."
+          curl -X POST -H 'Content-type: application/json' --data '{
+            "text": "Snyk Vulnerability Report:\n\nTotal Vulnerabilities: '"$total_vulnerabilities"'\n\nHigh: '"$high_vulnerabilities"'\n'"$high_vulnerability_details"'\n\nMedium: '"$medium_vulnerabilities"'\n'"$medium_vulnerability_details"'\n\nLow: '"$low_vulnerabilities"'\n'"$low_vulnerability_details"'"
+          }' ${{ secrets.SLACK_WEBHOOK_URL }}
