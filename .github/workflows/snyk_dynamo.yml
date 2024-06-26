@@ -14,7 +14,7 @@ jobs:
       uses: actions/checkout@v2
 
     - name: Run Snyk to check for vulnerabilities
-      run: snyk test --json > snyk-results.json
+      run: snyk code test --json > snyk-results.json
 
     - name: Parse Snyk results
       id: parse-results
