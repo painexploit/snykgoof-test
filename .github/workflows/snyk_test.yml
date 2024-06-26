@@ -16,18 +16,37 @@ jobs:
       - name: Calculate and save vulnerability details
         run: |
           echo "Parsing Snyk SARIF output..."
-          total_vulnerabilities=$(jq '.runs[].tool.driver.rules | length' snyk.sarif)
+          total_vulnerabilities=$(jq '[.runs[].results[]] | length' snyk.sarif)
           echo "RESULTS_LENGTH=$total_vulnerabilities" >> $GITHUB_ENV
+          high_vulnerabilities=$(jq '[.runs[].results[] | select(.level=="error")] | length' snyk.sarif)
+          medium_vulnerabilities=$(jq '[.runs[].results[] | select(.level=="warning")] | length' snyk.sarif)
+          low_vulnerabilities=$(jq '[.runs[].results[] | select(.level=="note")] | length' snyk.sarif)
+          high_vulnerability_details=$(jq -r '.runs[].tool.driver.rules[] | select(.defaultConfiguration.level == "error") | .shortDescription.text' snyk.sarif)
+          medium_vulnerability_details=$(jq -r '.runs[].tool.driver.rules[] | select(.defaultConfiguration.level == "warning") | .shortDescription.text' snyk.sarif)
+          low_vulnerability_details=$(jq -r '.runs[].tool.driver.rules[] | select(.defaultConfiguration.level == "note") | .shortDescription.text' snyk.sarif)
+          
+      - name: details
+        run: |
+          #!/bin/bash
+          # Define the SARIF file
+          sarif_file="snyk.sarif"
+          # Retrieve the descriptions dynamically and store them in an array
+          mapfile -t descriptions < <(jq -r '.runs[].tool.driver.rules[].shortDescription.text' snyk.sarif)
+          # Print the header
+          echo "index,shortDescription.text,artifactlocationuri,startline"
+          # Extract the required fields and print to the terminal
+          for index in "${!descriptions[@]}"; do
+            result=$(jq --arg index "$index" --arg desc "${descriptions[$index]}" -r \
+              '.runs[].results[] | select(.ruleIndex == ($index|tonumber)) | "\($desc),\(.locations[].physicalLocation.artifactLocation.uri),\(.locations[].physicalLocation.region.startLine)"' \
+              "$sarif_file")
+            details+="$result\n"
+          done
+          echo "$details" > details.txt
       
-          high_vulnerabilities=$(jq '.runs[].tool.driver.rules[] | select(.defaultConfiguration.level == "error") | .shortDescription.text' snyk.sarif | wc -l)
-          medium_vulnerabilities=$(jq '.runs[].tool.driver.rules[] | select(.defaultConfiguration.level == "warning") | .shortDescription.text' snyk.sarif | wc -l)
-          low_vulnerabilities=$(jq '.runs[].tool.driver.rules[] | select(.defaultConfiguration.level == "note") | .shortDescription.text' snyk.sarif | wc -l)
-      
-          high_vulnerability_details=$(jq -r '.runs[].tool.driver.rules[] | select(.defaultConfiguration.level == "error") | {description: .shortDescription.text, path: .locations[].physicalLocation.artifactLocation.uri, line: .locations[].physicalLocation.region.startLine} | "Description: \(.description)\nPath: \(.path), line \(.line)"' snyk.sarif | paste -sd "\n" -)
-          medium_vulnerability_details=$(jq -r '.runs[].tool.driver.rules[] | select(.defaultConfiguration.level == "warning") | {description: .shortDescription.text, path: .locations[].physicalLocation.artifactLocation.uri, line: .locations[].physicalLocation.region.startLine} | "Description: \(.description)\nPath: \(.path), line \(.line)"' snyk.sarif | paste -sd "\n" -)
-          low_vulnerability_details=$(jq -r '.runs[].tool.driver.rules[] | select(.defaultConfiguration.level == "note") | {description: .shortDescription.text, path: .locations[].physicalLocation.artifactLocation.uri, line: .locations[].physicalLocation.region.startLine} | "Description: \(.description)\nPath: \(.path), line \(.line)"' snyk.sarif | paste -sd "\n" -)
-
+      - name: Send Snyk details to Slack
+        run: |
+          details=$(cat details.txt)
           echo "Sending notification to Slack..."
           curl -X POST -H 'Content-type: application/json' --data '{
-            "text": "Snyk Vulnerability Report:\n\nTotal Vulnerabilities: '"$total_vulnerabilities"'\n\nHigh: '"$high_vulnerabilities"'\n'"$high_vulnerability_details"'\n\nMedium: '"$medium_vulnerabilities"'\n'"$medium_vulnerability_details"'\n\nLow: '"$low_vulnerabilities"'\n'"$low_vulnerability_details"'"
+            "text": "Snyk Vulnerability Report Details:\n\n'"$details"'"
           }' ${{ secrets.SLACK_WEBHOOK_URL }}
