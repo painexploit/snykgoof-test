@@ -21,9 +21,9 @@ jobs:
           high_vulnerabilities=$(jq '[.runs[].results[] | select(.level=="error")] | length' snyk.sarif)
           medium_vulnerabilities=$(jq '[.runs[].results[] | select(.level=="warning")] | length' snyk.sarif)
           low_vulnerabilities=$(jq '[.runs[].results[] | select(.level=="note")] | length' snyk.sarif)
-          high_vulnerability_details=$(jq -r '.runs[].tool.driver.rules[] | select(.defaultConfiguration.level == "error") | .shortDescription.text' snyk.sarif)
-          medium_vulnerability_details=$(jq -r '.runs[].tool.driver.rules[] | select(.defaultConfiguration.level == "warning") | .shortDescription.text' snyk.sarif)
-          low_vulnerability_details=$(jq -r '.runs[].tool.driver.rules[] | select(.defaultConfiguration.level == "note") | .shortDescription.text' snyk.sarif)
+          echo "HIGH_VULNERABILITIES=$high_vulnerabilities" >> $GITHUB_ENV
+          echo "MEDIUM_VULNERABILITIES=$medium_vulnerabilities" >> $GITHUB_ENV
+          echo "LOW_VULNERABILITIES=$low_vulnerabilities" >> $GITHUB_ENV
           
       - name: details
         run: |
@@ -32,12 +32,20 @@ jobs:
           sarif_file="snyk.sarif"
           # Retrieve the descriptions dynamically and store them in an array
           mapfile -t descriptions < <(jq -r '.runs[].tool.driver.rules[].shortDescription.text' snyk.sarif)
-          # Print the header
-          echo "index,shortDescription.text,artifactlocationuri,startline"
-          # Extract the required fields and print to the terminal
+          mapfile -t dates < <(jq -r '.runs[].results[].partialFingerprints."timestamp"' snyk.sarif)
+          # Initialize a variable to store the results
+          details="index,shortDescription.text,artifactlocationuri,startline,age(days)\n"
+          # Extract the required fields and append to the details variable
           for index in "${!descriptions[@]}"; do
-            result=$(jq --arg index "$index" --arg desc "${descriptions[$index]}" -r \
-              '.runs[].results[] | select(.ruleIndex == ($index|tonumber)) | "\($desc),\(.locations[].physicalLocation.artifactLocation.uri),\(.locations[].physicalLocation.region.startLine)"' \
+            if [ "${dates[$index]}" != "null" ]; then
+              detection_date=$(date -d "${dates[$index]}" +%s)
+              current_date=$(date +%s)
+              age=$(( (current_date - detection_date) / 86400 ))
+            else
+              age="unknown"
+            fi
+            result=$(jq --arg index "$index" --arg desc "${descriptions[$index]}" --arg age "$age" -r \
+              '.runs[].results[] | select(.ruleIndex == ($index|tonumber)) | "\($index),\($desc),\(.locations[].physicalLocation.artifactLocation.uri),\(.locations[].physicalLocation.region.startLine),\($age)"' \
               "$sarif_file")
             details+="$result\n"
           done
@@ -48,5 +56,5 @@ jobs:
           details=$(cat details.txt)
           echo "Sending notification to Slack..."
           curl -X POST -H 'Content-type: application/json' --data '{
-            "text": "Snyk Vulnerability Report Details:\n\n'"$details"'"
+            "text": "Snyk Vulnerability Report Details:\n\nTotal Vulnerabilities: '"$RESULTS_LENGTH"'\nHigh: '"$HIGH_VULNERABILITIES"'\nMedium: '"$MEDIUM_VULNERABILITIES"'\nLow: '"$LOW_VULNERABILITIES"'\nDetails:\n'"$details"'"
           }' ${{ secrets.SLACK_WEBHOOK_URL }}
