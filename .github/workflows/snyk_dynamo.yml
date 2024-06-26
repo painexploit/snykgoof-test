@@ -19,15 +19,15 @@ jobs:
         SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
       with:
         command: code test
-        args: --json-file-output=snyk-results.json
+        args: --sarif-file-output=snyk.sarif
 
     - name: Parse Snyk results
       id: parse-results
       run: |
-        critical=$(jq '.vulnerabilities | map(select(.severity == "critical")) | length' snyk-results.json)
-        high=$(jq '.vulnerabilities | map(select(.severity == "high")) | length' snyk-results.json)
-        medium=$(jq '.vulnerabilities | map(select(.severity == "medium")) | length' snyk-results.json)
-        low=$(jq '.vulnerabilities | map(select(.severity == "low")) | length' snyk-results.json)
+        critical=$(jq '[.runs[].results[] | select(.level == "error" and .properties.severity == "critical")] | length' snyk-results.sarif)
+        high=$(jq '[.runs[].results[] | select(.level == "error" and .properties.severity == "high")] | length' snyk-results.sarif)
+        medium=$(jq '[.runs[].results[] | select(.level == "warning" and .properties.severity == "medium")] | length' snyk-results.sarif)
+        low=$(jq '[.runs[].results[] | select(.level == "note" and .properties.severity == "low")] | length' snyk-results.sarif)
         echo "::set-output name=critical::$critical"
         echo "::set-output name=high::$high"
         echo "::set-output name=medium::$medium"
