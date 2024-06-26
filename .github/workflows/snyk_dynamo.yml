@@ -6,15 +6,20 @@ on:
       - main
 
 jobs:
-  snyk-scan:
+  Security:
     runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v2
-
+      uses: actions/checkout@v3
     - name: Run Snyk to check for vulnerabilities
-      run: snyk code test --json > snyk-results.json
+      uses: snyk/actions/node@master
+      continue-on-error: true
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      with:
+        command: code test
+        args: --json-file-output=snyk-results.json
 
     - name: Parse Snyk results
       id: parse-results
