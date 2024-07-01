@@ -13,48 +13,28 @@ jobs:
         with:
           command: code test
           args: --sarif-file-output=snyk.sarif
-      - name: Calculate and save vulnerability details
+      - name: Total Security Issues
         run: |
-          echo "Parsing Snyk SARIF output..."
-          total_vulnerabilities=$(jq '[.runs[].results[]] | length' snyk.sarif)
-          echo "RESULTS_LENGTH=$total_vulnerabilities" >> $GITHUB_ENV
-          high_vulnerabilities=$(jq '[.runs[].results[] | select(.level=="error")] | length' snyk.sarif)
-          medium_vulnerabilities=$(jq '[.runs[].results[] | select(.level=="warning")] | length' snyk.sarif)
-          low_vulnerabilities=$(jq '[.runs[].results[] | select(.level=="note")] | length' snyk.sarif)
-          echo "HIGH_VULNERABILITIES=$high_vulnerabilities" >> $GITHUB_ENV
-          echo "MEDIUM_VULNERABILITIES=$medium_vulnerabilities" >> $GITHUB_ENV
-          echo "LOW_VULNERABILITIES=$low_vulnerabilities" >> $GITHUB_ENV
-          
-      - name: details
+              length=$(cat snyk.sarif | jq '.runs[0].results | length')
+              echo "RESULTS_LENGTH=$length" >> $GITHUB_ENV
+      - name: High
         run: |
-          #!/bin/bash
-          # Define the SARIF file
-          sarif_file="snyk.sarif"
-          # Retrieve the descriptions dynamically and store them in an array
-          mapfile -t descriptions < <(jq -r '.runs[].tool.driver.rules[].shortDescription.text' snyk.sarif)
-          mapfile -t dates < <(jq -r '.runs[].results[].partialFingerprints."timestamp"' snyk.sarif)
-          # Initialize a variable to store the results
-          details="index,shortDescription.text,artifactlocationuri,startline,age(days)\n"
-          # Extract the required fields and append to the details variable
-          for index in "${!descriptions[@]}"; do
-            if [ "${dates[$index]}" != "null" ]; then
-              detection_date=$(date -d "${dates[$index]}" +%s)
-              current_date=$(date +%s)
-              age=$(( (current_date - detection_date) / 86400 ))
-            else
-              age="unknown"
-            fi
-            result=$(jq --arg index "$index" --arg desc "${descriptions[$index]}" --arg age "$age" -r \
-              '.runs[].results[] | select(.ruleIndex == ($index|tonumber)) | "\($index),\($desc),\(.locations[].physicalLocation.artifactLocation.uri),\(.locations[].physicalLocation.region.startLine),\($age)"' \
-              "$sarif_file")
-            details+="$result\n"
-          done
-          echo "$details" > details.txt
-      
-      - name: Send Snyk details to Slack
+              high=$(cat snyk.sarif | jq '.runs[0].results | map(select(.level == "error")) | length')
+              echo "RESULTS_HIGH=$high" >> $GITHUB_ENV
+      - name: Medium
         run: |
-          details=$(cat details.txt)
-          echo "Sending notification to Slack..."
-          curl -X POST -H 'Content-type: application/json' --data '{
-            "text": "Snyk Vulnerability Report Details:\n\nTotal Vulnerabilities: '"$RESULTS_LENGTH"'\nHigh: '"$HIGH_VULNERABILITIES"'\nMedium: '"$MEDIUM_VULNERABILITIES"'\nLow: '"$LOW_VULNERABILITIES"'\nDetails:\n'"$details"'"
-          }' ${{ secrets.SLACK_WEBHOOK_URL }}
+              medium=$(cat snyk.sarif | jq '.runs[0].results | map(select(.level == "warning")) | length')
+              echo "RESULTS_MEDIUM=$medium" >> $GITHUB_ENV
+      - name: Low
+        run: |
+              low=$(cat snyk.sarif | jq '.runs[0].results | map(select(.level == "note")) | length')
+              echo "RESULTS_LOW=$low" >> $GITHUB_ENV
+      - name: Send notification on Slack using Webhooks
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+                {
+                   "text": "*The Snyk scan result for repo , snykgoof, is : ${{ job.status }}* \n*Number of vulnerabilities : ${{ env.RESULTS_LENGTH }}* \n*High : ${{ env.RESULTS_HIGH }}* \n*Medium : ${{ env.RESULTS_MEDIUM }}* \n*Low : ${{ env.RESULTS_LOW }}* \n*Detail*: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                }
+        env:
+            SLACK_WEBHOOK_URL: ${{ secrets.slack_webhook_url }}
