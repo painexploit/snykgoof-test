@@ -29,12 +29,13 @@ jobs:
         run: |
               low=$(cat snyk.sarif | jq '.runs[0].results | map(select(.level == "note")) | length')
               echo "RESULTS_LOW=$low" >> $GITHUB_ENV
-      - name: Send notification on Slack using Webhooks
-        uses: slackapi/slack-github-action@v1.24.0
-        with:
-          payload: |
-                {
-                   "text": "*The Snyk scan result for repo , snykgoof, is : ${{ job.status }}* \n*Number of vulnerabilities : ${{ env.RESULTS_LENGTH }}* \n*High : ${{ env.RESULTS_HIGH }}* \n*Medium : ${{ env.RESULTS_MEDIUM }}* \n*Low : ${{ env.RESULTS_LOW }}* \n*Detail*: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                }
+      - name: Send results to Slack
+        uses: rtCamp/action-slack-notify@v2
         env:
-            SLACK_WEBHOOK_URL: ${{ secrets.slack_webhook_url }}
+         SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+         SLACK_MESSAGE: |
+          SnykGoof Vulnerabilities:
+          Total Vulnerabilities: ${{ env.RESULTS_LENGTH }}
+          High: ${{ env.RESULTS_HIGH }}
+          Medium: ${{ env.RESULTS_MEDIUM }}
+          Low: ${{ env.RESULTS_LOW }}
