@@ -5,15 +5,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@master
+      - name: Install Snyk CLI
+        run: |
+          npm install -g snyk
+          snyk --version  # Verify Snyk installation
+
       - name: Authenticate Snyk
-        run: auth ${{ secrets.SNYK_TOKEN }}
+        run: snyk auth ${{ secrets.SNYK_TOKEN }}
+
       - name: Run Snyk to check for vulnerabilities
         uses: snyk/actions/node@master
         continue-on-error: true
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
-          command: code test
+          command: test
           args: --sarif-file-output=snyk.sarif
       - name: Total Security Issues
         run: |
