@@ -2,7 +2,7 @@ name: Example workflow for Node using Snyk
 on: push
 jobs:
   security:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-2204-8core
     steps:
       - uses: actions/checkout@master
       - name: Install Snyk CLI
