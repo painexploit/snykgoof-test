@@ -13,14 +13,6 @@ jobs:
         with:
           command: test
           args: --sarif-file-output=snyk.sarif
-      - name: Upload results to DynamoDB
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: "us-east-1"
-          DYNAMODB_TABLE_NAME: "snyk-table"
-        run: |
-          python .github/workflows/upload_to_dynamodb.py .github/snyk.sarif
       - name: Send results to Slack
         uses: rtCamp/action-slack-notify@v2
         env:
@@ -31,3 +23,15 @@ jobs:
           High: ${{ env.SNYK_HIGH }}
           Medium: ${{ env.SNYK_MEDIUM }}
           Low: ${{ env.SNYK_LOW }}
+      - name: Install boto3
+        run: |
+          python -m pip install boto3
+      - name: Upload results to DynamoDB
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: "us-east-1"
+          DYNAMODB_TABLE_NAME: "snyk-table"
+        run: |
+          python .github/workflows/upload_to_dynamodb.py .github/snyk.sarif
+      
