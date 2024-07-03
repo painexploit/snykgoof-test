@@ -33,5 +33,5 @@ jobs:
           AWS_REGION: "us-east-1"
           DYNAMODB_TABLE_NAME: "snyk-table"
         run: |
-          python .github/workflows/upload_to_dynamodb.py .github/snyk.sarif
+          python .github/workflows/upload_to_dynamodb.py snyk.sarif
       
