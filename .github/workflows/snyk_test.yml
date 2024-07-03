@@ -12,63 +12,15 @@ jobs:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
           command: test
-          args: --json-file-output=snyk.json
-      - name: Parse and print Snyk results
-        id: parse_snyk
-        run: |
-          snyk_results=$(cat snyk.json)
-          echo "Snyk results: $snyk_results"
-          total=$(jq '.vulnerabilities | length' snyk.json)
-          high=$(jq '[.vulnerabilities[] | select(.severity == "high")] | length' snyk.json)
-          medium=$(jq '[.vulnerabilities[] | select(.severity == "medium")] | length' snyk.json)
-          low=$(jq '[.vulnerabilities[] | select(.severity == "low")] | length' snyk.json)
-          echo "Total Vulnerabilities: $total"
-          echo "High: $high"
-          echo "Medium: $medium"
-          echo "Low: $low"
-          
-          # Extract details of the first vulnerability as an example
-          vuln_name=$(jq -r '.vulnerabilities[0].title' snyk.json)
-          vuln_path=$(jq -r '.vulnerabilities[0].from[-1]' snyk.json)
-          vuln_line=$(jq -r '.vulnerabilities[0].identifiers.CWE[0]' snyk.json)
-          severity=$(jq -r '.vulnerabilities[0].severity' snyk.json)
-          timestamp=$(date +"%Y%m%d_%H%M%S")
-          current_date=$(date +"%Y-%m-%d")
-          
-          echo "Date: $current_date"
-          echo "vulnerability-name: $vuln_name"
-          echo "vulnerable-path: $vuln_path"
-          echo "Line: $vuln_line"
-          echo "severity: $severity"
-          echo "timestamp: $timestamp"
-
-          echo "SNYK_TOTAL=$total" >> $GITHUB_ENV
-          echo "SNYK_HIGH=$high" >> $GITHUB_ENV
-          echo "SNYK_MEDIUM=$medium" >> $GITHUB_ENV
-          echo "SNYK_LOW=$low" >> $GITHUB_ENV
-          echo "VULN_NAME=$vuln_name" >> $GITHUB_ENV
-          echo "VULN_PATH=$vuln_path" >> $GITHUB_ENV
-          echo "VULN_LINE=$vuln_line" >> $GITHUB_ENV
-          echo "VULN_SEVERITY=$severity" >> $GITHUB_ENV
-          echo "TIMESTAMP=$timestamp" >> $GITHUB_ENV
-          echo "CURRENT_DATE=$current_date" >> $GITHUB_ENV
-
-      - name: Send data to DynamoDB
-        run: |
-          aws dynamodb put-item \
-            --table-name snyk-table \
-            --item '{
-              "Date": {"S": "'"$CURRENT_DATE"'"},
-              "vulnerability-name": {"S": "'"$VULN_NAME"'"},
-              "vulnerable-path": {"S": "'"$VULN_PATH"'"},
-              "Line": {"N": "'"$VULN_LINE"'"},
-              "severity": {"S": "'"$VULN_SEVERITY"'"},
-              "timestamp": {"S": "'"$TIMESTAMP"'"}
-            }'
+          args: --sarif-file-output=snyk.sarif
+      - name: Upload results to DynamoDB
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: 'us-east-1'
+          AWS_REGION: "us-east-1"
+          DYNAMODB_TABLE_NAME: "snyk-table"
+        run: |
+          python .github/workflows/upload_to_dynamodb.py .github/snyk.sarif
       - name: Send results to Slack
         uses: rtCamp/action-slack-notify@v2
         env:
