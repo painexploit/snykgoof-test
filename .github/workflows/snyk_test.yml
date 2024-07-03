@@ -2,17 +2,9 @@ name: Example workflow for Node using Snyk
 on: push
 jobs:
   security:
-    runs-on: ubuntu-2204-8core
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@master
-      - name: Install Snyk CLI
-        run: |
-          npm install -g snyk
-          snyk --version  # Verify Snyk installation
-
-      - name: Authenticate Snyk
-        run: snyk auth ${{ secrets.SNYK_TOKEN }}
-
       - name: Run Snyk to check for vulnerabilities
         uses: snyk/actions/node@master
         continue-on-error: true
@@ -20,30 +12,70 @@ jobs:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
           command: test
-          args: --sarif-file-output=snyk.sarif
-      - name: Total Security Issues
+          args: --json-file-output=snyk.json
+      - name: Parse and print Snyk results
+        id: parse_snyk
         run: |
-              length=$(cat snyk.sarif | jq '.runs[0].results | length')
-              echo "RESULTS_LENGTH=$length" >> $GITHUB_ENV
-      - name: High
+          snyk_results=$(cat snyk.json)
+          echo "Snyk results: $snyk_results"
+          total=$(jq '.vulnerabilities | length' snyk.json)
+          high=$(jq '[.vulnerabilities[] | select(.severity == "high")] | length' snyk.json)
+          medium=$(jq '[.vulnerabilities[] | select(.severity == "medium")] | length' snyk.json)
+          low=$(jq '[.vulnerabilities[] | select(.severity == "low")] | length' snyk.json)
+          echo "Total Vulnerabilities: $total"
+          echo "High: $high"
+          echo "Medium: $medium"
+          echo "Low: $low"
+          
+          # Extract details of the first vulnerability as an example
+          vuln_name=$(jq -r '.vulnerabilities[0].title' snyk.json)
+          vuln_path=$(jq -r '.vulnerabilities[0].from[-1]' snyk.json)
+          vuln_line=$(jq -r '.vulnerabilities[0].identifiers.CWE[0]' snyk.json)
+          severity=$(jq -r '.vulnerabilities[0].severity' snyk.json)
+          timestamp=$(date +"%Y%m%d_%H%M%S")
+          current_date=$(date +"%Y-%m-%d")
+          
+          echo "Date: $current_date"
+          echo "vulnerability-name: $vuln_name"
+          echo "vulnerable-path: $vuln_path"
+          echo "Line: $vuln_line"
+          echo "severity: $severity"
+          echo "timestamp: $timestamp"
+
+          echo "SNYK_TOTAL=$total" >> $GITHUB_ENV
+          echo "SNYK_HIGH=$high" >> $GITHUB_ENV
+          echo "SNYK_MEDIUM=$medium" >> $GITHUB_ENV
+          echo "SNYK_LOW=$low" >> $GITHUB_ENV
+          echo "VULN_NAME=$vuln_name" >> $GITHUB_ENV
+          echo "VULN_PATH=$vuln_path" >> $GITHUB_ENV
+          echo "VULN_LINE=$vuln_line" >> $GITHUB_ENV
+          echo "VULN_SEVERITY=$severity" >> $GITHUB_ENV
+          echo "TIMESTAMP=$timestamp" >> $GITHUB_ENV
+          echo "CURRENT_DATE=$current_date" >> $GITHUB_ENV
+
+      - name: Send data to DynamoDB
         run: |
-              high=$(cat snyk.sarif | jq '.runs[0].results | map(select(.level == "error")) | length')
-              echo "RESULTS_HIGH=$high" >> $GITHUB_ENV
-      - name: Medium
-        run: |
-              medium=$(cat snyk.sarif | jq '.runs[0].results | map(select(.level == "warning")) | length')
-              echo "RESULTS_MEDIUM=$medium" >> $GITHUB_ENV
-      - name: Low
-        run: |
-              low=$(cat snyk.sarif | jq '.runs[0].results | map(select(.level == "note")) | length')
-              echo "RESULTS_LOW=$low" >> $GITHUB_ENV
+          aws dynamodb put-item \
+            --table-name snyk-table \
+            --item '{
+              "Date": {"S": "'"$CURRENT_DATE"'"},
+              "vulnerability-name": {"S": "'"$VULN_NAME"'"},
+              "vulnerable-path": {"S": "'"$VULN_PATH"'"},
+              "Line": {"N": "'"$VULN_LINE"'"},
+              "severity": {"S": "'"$VULN_SEVERITY"'"},
+              "timestamp": {"S": "'"$TIMESTAMP"'"}
+            }'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: 'us-east-1'
       - name: Send results to Slack
         uses: rtCamp/action-slack-notify@v2
         env:
          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
          SLACK_MESSAGE: |
           SnykGoof Vulnerabilities:
-          Total Vulnerabilities: ${{ env.RESULTS_LENGTH }}
-          High: ${{ env.RESULTS_HIGH }}
-          Medium: ${{ env.RESULTS_MEDIUM }}
-          Low: ${{ env.RESULTS_LOW }}
+          Total Vulnerabilities: ${{ env.SNYK_TOTAL }}
+          High: ${{ env.SNYK_HIGH }}
+          Medium: ${{ env.SNYK_MEDIUM }}
+          Low: ${{ env.SNYK_LOW }}
