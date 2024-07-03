@@ -8,43 +8,44 @@ def parse_sarif(file_path):
     with open(file_path, 'r') as f:
         sarif_data = json.load(f)
     
-    counts = {
-        'Critical': 0,
-        'High': 0,
-        'Medium': 0,
-        'Low': 0
+    vulnerabilities = {
+        'Critical': [],
+        'High': [],
+        'Medium': [],
+        'Low': []
     }
 
     # SARIF structure might vary, adjust the parsing as per the actual SARIF structure
     for run in sarif_data.get('runs', []):
         for result in run.get('results', []):
             severity = result.get('level')
+            vulnerability_name = result.get('message', {}).get('text', 'Unknown vulnerability')
             if severity == 'error':
-                counts['Critical'] += 1
+                vulnerabilities['Critical'].append(vulnerability_name)
             elif severity == 'warning':
-                counts['High'] += 1
+                vulnerabilities['High'].append(vulnerability_name)
             elif severity == 'note':
-                counts['Medium'] += 1
+                vulnerabilities['Medium'].append(vulnerability_name)
             else:
-                counts['Low'] += 1
+                vulnerabilities['Low'].append(vulnerability_name)
     
-    return counts
+    return vulnerabilities
 
 def upload_to_dynamodb(file_path, table_name):
-    counts = parse_sarif(file_path)
+    vulnerabilities = parse_sarif(file_path)
 
     # Initialize DynamoDB client
     dynamodb = boto3.resource('dynamodb', region_name=region_name)
     table = dynamodb.Table(table_name)
 
-    # Upload the counts
+    # Upload the vulnerabilities
     response = table.put_item(
         Item={
             'id': str(uuid.uuid4()),
-            'critical': ['Critical'],
-            'high': ['High'],
-            'medium': ['Medium'],
-            'low': ['Low']
+            'critical': vulnerabilities['Critical'],
+            'high': vulnerabilities['High'],
+            'medium': vulnerabilities['Medium'],
+            'low': vulnerabilities['Low']
         }
     )
     return response
